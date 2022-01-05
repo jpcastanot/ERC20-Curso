@@ -2,11 +2,12 @@
 
 pragma solidity ^0.8.11;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 
-contract PlatziToken is ERC20 {
+contract PlatziToken is ERC20Upgradeable {
 
-  constructor(uint256 initialSupply) ERC20("PlatziToken", "PLZ")  {
+  function initialize(uint256 initialSupply) initializer public {
+    __ERC20_init("PlatziToken", "PLZ");
     _mint(msg.sender, initialSupply * (10 ** decimals()));
   }
 }
