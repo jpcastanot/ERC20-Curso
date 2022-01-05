@@ -1,17 +1,19 @@
 const { expect } = require("chai");
-const { ethers } = require("hardhat");
+const { ethers, upgrades } = require("hardhat");
 
 const initialSupply = 1000000;
 const tokenName = "PlatziToken";
 const tokenSymbol = "PLZ";
 
-describe("Plazi token tests", function() {
+describe("Platzi token tests", function() {
   before(async function() {
     const availableSigners = await ethers.getSigners();
     this.deployer = availableSigners[0];
 
     const PlatziToken = await ethers.getContractFactory("PlatziToken");
-    this.platziToken = await PlatziToken.deploy(initialSupply);
+
+    // this.platziToken = await PlatziToken.deploy(initialSupply);
+    this.platziToken = await upgrades.deployProxy(PlatziToken, [initialSupply], { kind: "uups" });
     await this.platziToken.deployed();
   });
 
@@ -33,6 +35,4 @@ describe("Plazi token tests", function() {
     const expectedTotalSupply = ethers.BigNumber.from(initialSupply).mul(ethers.BigNumber.from(10).pow(decimals));
     expect(fetchedTotalSupply.eq(expectedTotalSupply)).to.be.true;
   });
-
-
 });
