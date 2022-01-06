@@ -6,33 +6,76 @@ const tokenName = "PlatziToken";
 const tokenSymbol = "PLZ";
 
 describe("Platzi token tests", function() {
-  before(async function() {
-    const availableSigners = await ethers.getSigners();
-    this.deployer = availableSigners[0];
+  let platziTokenV1;
+  let platziTokenV2;
+  let deployer;
+  let userAccount;
 
-    const PlatziToken = await ethers.getContractFactory("PlatziToken");
+  describe("V1 tests", function () {
+    before(async function() {
+      const availableSigners = await ethers.getSigners();
+      deployer = availableSigners[0];
 
-    // this.platziToken = await PlatziToken.deploy(initialSupply);
-    this.platziToken = await upgrades.deployProxy(PlatziToken, [initialSupply], { kind: "uups" });
-    await this.platziToken.deployed();
+      const PlatziToken = await ethers.getContractFactory("PlatziTokenV1");
+
+      // this.platziTokenV1 = await PlatziToken.deploy(initialSupply);
+      platziTokenV1 = await upgrades.deployProxy(PlatziToken, [initialSupply], { kind: "uups" });
+      await platziTokenV1.deployed();
+    });
+
+    it('Should be named PlatziToken', async function() {
+      const fetchedTokenName = await platziTokenV1.name();
+      expect(fetchedTokenName).to.be.equal(tokenName);
+    });
+
+    it('Should have symbol "PLZ"', async function() {
+      const fetchedTokenSymbol = await platziTokenV1.symbol();
+      expect(fetchedTokenSymbol).to.be.equal(tokenSymbol);
+    });
+
+    it('Should have totalSupply passed in during deployment', async function() {
+      const [ fetchedTotalSupply, decimals ] = await Promise.all([
+        platziTokenV1.totalSupply(),
+        platziTokenV1.decimals(),
+      ]);
+      const expectedTotalSupply = ethers.BigNumber.from(initialSupply).mul(ethers.BigNumber.from(10).pow(decimals));
+      expect(fetchedTotalSupply.eq(expectedTotalSupply)).to.be.true;
+    });
   });
 
-  it('Should be named PlatziToken', async function() {
-    const fetchedTokenName = await this.platziToken.name();
-    expect(fetchedTokenName).to.be.equal(tokenName);
-  });
+  describe("V2 tests", function () {
+    before(async function () {
 
-  it('Should have symbol "PLZ"', async function() {
-    const fetchedTokenSymbol = await this.platziToken.symbol();
-    expect(fetchedTokenSymbol).to.be.equal(tokenSymbol);
-  });
+      userAccount = (await ethers.getSigners())[1];
 
-  it('Should have totalSupply passed in during deploying', async function() {
-    const [ fetchedTotalSupply, decimals ] = await Promise.all([
-      this.platziToken.totalSupply(),
-      this.platziToken.decimals(),
-    ]);
-    const expectedTotalSupply = ethers.BigNumber.from(initialSupply).mul(ethers.BigNumber.from(10).pow(decimals));
-    expect(fetchedTotalSupply.eq(expectedTotalSupply)).to.be.true;
+      const PlatziTokenV2 = await ethers.getContractFactory("PlatziTokenV2");
+
+      platziTokenV2 = await upgrades.upgradeProxy(platziTokenV1.address, PlatziTokenV2);
+
+      await platziTokenV2.deployed();
+    });
+
+    it("Should revert when an account other than the owner is trying to mint tokens", async function() {
+      const tmpContractRef = await platziTokenV2.connect(userAccount);
+      try {
+        await tmpContractRef.mint(userAccount.address, ethers.BigNumber.from(10).pow(ethers.BigNumber.from(18)));
+      } catch (ex) {
+        expect(ex.message).to.contain("reverted");
+        expect(ex.message).to.contain("Ownable: caller is not the owner");
+      }
+    });
+
+    it("Should mint tokens when the owner is executing the mint function", async function () {
+      const amountToMint = ethers.BigNumber.from(10).pow(ethers.BigNumber.from(18)).mul(ethers.BigNumber.from(10));
+      const accountAmountBeforeMint = await platziTokenV2.balanceOf(deployer.address);
+      const totalSupplyBeforeMint = await platziTokenV2.totalSupply();
+      await platziTokenV2.mint(deployer.address, amountToMint);
+
+      const newAccountAmount = await platziTokenV2.balanceOf(deployer.address);
+      const newTotalSupply = await platziTokenV2.totalSupply();
+      
+      expect(newAccountAmount.eq(accountAmountBeforeMint.add(amountToMint))).to.be.true;
+      expect(newTotalSupply.eq(totalSupplyBeforeMint.add(amountToMint))).to.be.true;
+    });
   });
 });

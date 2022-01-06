@@ -6,7 +6,7 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-contract PlatziToken is ERC20Upgradeable, UUPSUpgradeable, OwnableUpgradeable {
+contract PlatziTokenV1 is ERC20Upgradeable, UUPSUpgradeable, OwnableUpgradeable {
 
   function initialize(uint256 initialSupply) initializer public {
     __ERC20_init("PlatziToken", "PLZ");
