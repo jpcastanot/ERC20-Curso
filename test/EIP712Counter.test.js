@@ -57,7 +57,7 @@ describe("EIP712Counter test", function () {
     counterContract.address
   });
 
-  it("Should allow a gas relayer send a transaction on behalf some other account", async function () {
+  it("Should allow a gas relayer send a transaction on behalf of some other account", async function () {
     const counterTmpInstance = await counterContract.connect(relayerAccount);
     const { chainId } = await relayerAccount.provider.getNetwork();
 

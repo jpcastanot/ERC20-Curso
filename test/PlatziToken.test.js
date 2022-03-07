@@ -5,11 +5,41 @@ const initialSupply = 1000000;
 const tokenName = "PlatziToken";
 const tokenSymbol = "PLZ";
 
+const eip712DomainTypeDefinition = [
+  { name: "name", type: "string" },
+  { name: "version", type: "string" },
+  { name: "chainId", type: "uint256" },
+  { name: "verifyingContract", type: "address" },
+];
+
+const metaTxTypeDefinition = [
+  { name: "from", type: "address" },
+  { name: "to", type: "address" },
+  { name: "nonce", type: "uint256" },
+  { name: "data", type: "bytes" },
+];
+
+function getTypedData(typedDataInput) {
+  return {
+    types: {
+      EIP712Domain: eip712DomainTypeDefinition,
+      [typedDataInput.primaryType]: metaTxTypeDefinition,
+    },
+    primaryType: typedDataInput.primaryType,
+    domain: typedDataInput.domainValues,
+    message: typedDataInput.messageValues,
+  };
+}
+
 describe("Platzi token tests", function() {
   let platziTokenV1;
   let platziTokenV2;
+  let platziTokenV3;
+  let platziTokenForwarder;
   let deployer;
   let userAccount;
+  let receiverAccount;
+  let relayerAccount;
 
   describe("V1 tests", function () {
     before(async function() {
@@ -76,6 +106,81 @@ describe("Platzi token tests", function() {
       
       expect(newAccountAmount.eq(accountAmountBeforeMint.add(amountToMint))).to.be.true;
       expect(newTotalSupply.eq(totalSupplyBeforeMint.add(amountToMint))).to.be.true;
+    });
+  });
+
+  describe("V3 tests", function () {
+    
+    before(async function () {
+
+      const availableSigners = await ethers.getSigners();
+      deployer = availableSigners[0];
+      userAccount = availableSigners[1];
+      receiverAccount = availableSigners[2];
+      relayerAccount = availableSigners[3];
+
+      const PlatziTokenV3 = await ethers.getContractFactory("PlatziTokenV3");
+      const PlatziTokenForwarder = await ethers.getContractFactory("PlatziTokenForwarder");
+
+      platziTokenForwarder = await PlatziTokenForwarder.deploy();
+      await platziTokenForwarder.deployed();
+
+      platziTokenV3 = await upgrades.deployProxy(PlatziTokenV3, [initialSupply, platziTokenForwarder.address], { kind: "uups" });
+      await platziTokenV3.deployed();
+    });
+
+    it("Transfer tokens from account A to B without account A paying for gas fees", async function () {
+
+      const forwarderContractTmpInstance = await platziTokenForwarder.connect(relayerAccount);
+
+      const { chainId } = await relayerAccount.provider.getNetwork();
+      const userAccountA = deployer;
+      const userAccountB = receiverAccount;
+
+      const userAccountAEthersBeforeTx = await userAccountA.getBalance();
+      const relayerAccountEthersBeforeTx = await relayerAccount.getBalance();
+
+      const relayerTokensBeforeTx = await platziTokenV3.balanceOf(relayerAccount.address);
+      const userACurrentNonce = await platziTokenForwarder.getNonce(userAccountA.address);
+
+      const totalAmountToTransfer = ethers.BigNumber.from(1).mul(ethers.BigNumber.from(10).pow(10));
+
+      const messageValues = {
+        from: userAccountA.address,
+        to: platziTokenV3.address,
+        nonce: userACurrentNonce.toString(),
+        data: platziTokenV3.interface.encodeFunctionData("transfer", [
+          userAccountB.address,
+          totalAmountToTransfer,
+        ])
+      };
+
+      const typedData = getTypedData({
+        domainValues: {
+          name: "PlatziTokenForwarder",
+          version: "0.0.1",
+          chainId: chainId,
+          verifyingContract: platziTokenForwarder.address,
+        },
+        primaryType: "MetaTx",
+        messageValues,
+      });
+
+      const signedMessage = await ethers.provider.send("eth_signTypedData_v4", [userAccountA.address, typedData]);
+
+      await forwarderContractTmpInstance.executeFunction(messageValues, signedMessage);
+
+      const userAccountAEthersAfterTx = await userAccountA.getBalance();
+      const relayerAccountEthersAfterTx = await relayerAccount.getBalance();
+      const relayerTokensAfterTx = await platziTokenV3.balanceOf(relayerAccount.address);
+
+      const userAccountBtokens = await platziTokenV3.balanceOf(userAccountB.address);
+      
+      expect(userAccountBtokens.eq(totalAmountToTransfer)).to.be.true;
+      expect(userAccountAEthersBeforeTx.eq(userAccountAEthersAfterTx)).to.be.true;
+      expect(relayerAccountEthersAfterTx.lt(relayerAccountEthersBeforeTx)).to.be.true;
+      expect(relayerTokensAfterTx.eq(relayerTokensBeforeTx));
+
     });
   });
 });
