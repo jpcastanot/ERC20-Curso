@@ -115,46 +115,58 @@ describe("Platzi token tests", function() {
 
       const availableSigners = await ethers.getSigners();
       deployer = availableSigners[0];
+      // user account
       userAccount = availableSigners[1];
+      // account that will receive the tokens
       receiverAccount = availableSigners[2];
+      // account that will act as gas relayer
       relayerAccount = availableSigners[3];
 
       const PlatziTokenV3 = await ethers.getContractFactory("PlatziTokenV3");
       const PlatziTokenForwarder = await ethers.getContractFactory("PlatziTokenForwarder");
 
+      // deploying forwarder
       platziTokenForwarder = await PlatziTokenForwarder.deploy();
       await platziTokenForwarder.deployed();
 
+      // Deploying token
       platziTokenV3 = await upgrades.deployProxy(PlatziTokenV3, [initialSupply, platziTokenForwarder.address], { kind: "uups" });
       await platziTokenV3.deployed();
     });
 
     it("Transfer tokens from account A to B without account A paying for gas fees", async function () {
-
+      // using relayer as the transaction sender when executing contract functions
       const forwarderContractTmpInstance = await platziTokenForwarder.connect(relayerAccount);
 
       const { chainId } = await relayerAccount.provider.getNetwork();
       const userAccountA = deployer;
       const userAccountB = receiverAccount;
 
+      // Getting "user" and relayer ETH balance before transaction
       const userAccountAEthersBeforeTx = await userAccountA.getBalance();
       const relayerAccountEthersBeforeTx = await relayerAccount.getBalance();
 
+      // Getting relayer token balance
       const relayerTokensBeforeTx = await platziTokenV3.balanceOf(relayerAccount.address);
+
+      // Getting actual user nonce
       const userACurrentNonce = await platziTokenForwarder.getNonce(userAccountA.address);
 
       const totalAmountToTransfer = ethers.BigNumber.from(1).mul(ethers.BigNumber.from(10).pow(10));
 
+      // Meta transaction values
       const messageValues = {
-        from: userAccountA.address,
-        to: platziTokenV3.address,
-        nonce: userACurrentNonce.toString(),
+        from: userAccountA.address, //Using user address
+        to: platziTokenV3.address, // to token contract address
+        nonce: userACurrentNonce.toString(), // actual nonce for user
         data: platziTokenV3.interface.encodeFunctionData("transfer", [
           userAccountB.address,
           totalAmountToTransfer,
-        ])
+        ]) // encoding function call for "transfer(address _to, uint256 amount)"
       };
 
+
+      // Gettting typed Data so our Meta-Tx structura can be signed
       const typedData = getTypedData({
         domainValues: {
           name: "PlatziTokenForwarder",
@@ -166,20 +178,33 @@ describe("Platzi token tests", function() {
         messageValues,
       });
 
+      // Getting signature for Meta-Tx struct using user keys
       const signedMessage = await ethers.provider.send("eth_signTypedData_v4", [userAccountA.address, typedData]);
 
+      // executing transaction
       await forwarderContractTmpInstance.executeFunction(messageValues, signedMessage);
 
+      // Getting user and relayer ETH balance before transaction
       const userAccountAEthersAfterTx = await userAccountA.getBalance();
       const relayerAccountEthersAfterTx = await relayerAccount.getBalance();
+
+      // Getting user token balance after transaction
       const relayerTokensAfterTx = await platziTokenV3.balanceOf(relayerAccount.address);
 
+      // Getting receiver token balance
       const userAccountBtokens = await platziTokenV3.balanceOf(userAccountB.address);
       
+      // Making sure the receiver got the transferred balance
       expect(userAccountBtokens.eq(totalAmountToTransfer)).to.be.true;
+
+      // Making sure the "user" ETH balance is the same as it was before sending the transaction (it did not have to pay for the transaction fee)
       expect(userAccountAEthersBeforeTx.eq(userAccountAEthersAfterTx)).to.be.true;
+      // Making sure the relayer ETH balance decreased because it paid for the transaction fee
       expect(relayerAccountEthersAfterTx.lt(relayerAccountEthersBeforeTx)).to.be.true;
+      // Making sure the relayer token balance did not change
       expect(relayerTokensAfterTx.eq(relayerTokensBeforeTx));
+      expect(relayerTokensAfterTx.eq(0)).to.be.equal(true);
+      expect(relayerTokensBeforeTx.eq(0)).to.be.equal(true);
 
     });
   });

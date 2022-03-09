@@ -21,6 +21,7 @@ contract PlatziTokenV3 is
         __Ownable_init_unchained();
         __UUPSUpgradeable_init();
         _mint(msg.sender, initialSupply * (10**decimals()));
+        // Initiating ERC2771Context contract
         __ERC2771Context_init_unchained(trustedForwarder);
     }
 
@@ -34,6 +35,7 @@ contract PlatziTokenV3 is
         _mint(toAccount, amount);
     }
 
+    // Overriding message _msgSender function so the one provided by ERC2771Context contract is used (To extract the sender from the execution data)
     function _msgSender()
         internal
         view
@@ -43,6 +45,7 @@ contract PlatziTokenV3 is
         return ERC2771ContextUpgradeable._msgSender();
     }
 
+    // Overriding message _msgData function so the one provided by ERC2771Context contract is used (In case there is an internal function that needs it)
     function _msgData()
         internal
         view
